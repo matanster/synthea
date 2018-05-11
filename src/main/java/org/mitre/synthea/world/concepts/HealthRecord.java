@@ -15,6 +15,7 @@ import java.util.Map;
 import java.util.Set;
 
 import org.mitre.synthea.helpers.Utilities;
+import org.mitre.synthea.world.agents.Person;
 import org.mitre.synthea.world.agents.Provider;
 
 /**
@@ -94,17 +95,30 @@ public class HealthRecord {
    * associated codes.
    */
   public class Entry {
+    private HealthRecord record = HealthRecord.this; // reference to the HealthRecord this entry belongs to
     public String fullUrl;
     public String name;
     public long start;
     public long stop;
     public String type;
     public List<Code> codes;
+    private BigDecimal cost;
 
     public Entry(long start, String type) {
       this.start = start;
       this.type = type;
       this.codes = new ArrayList<Code>();
+    }
+
+    public BigDecimal cost() {
+      if (cost == null) {
+        Person patient = record.person;
+        Provider provider = null;
+        String payer = null;
+        cost = BigDecimal.valueOf(Costs.calculateCost(this, patient, provider, payer));
+        cost = cost.setScale(2, RoundingMode.DOWN); // truncate to 2 decimal places
+      }
+      return cost;
     }
 
     public String toString() {
@@ -225,7 +239,7 @@ public class HealthRecord {
     public double baseCost;
     public Encounter encounter;
     public Medication medication;
-    public List<ClaimItem> items;
+    public List<Entry> items;
 
     public Claim(Encounter encounter) {
       // Encounter inpatient
@@ -248,37 +262,18 @@ public class HealthRecord {
     }
 
     public void addItem(Entry entry) {
-      items.add(new ClaimItem(entry, null));
+      items.add(entry);
     }
 
     public BigDecimal total() {
       BigDecimal total = BigDecimal.valueOf(baseCost);
 
-      for (ClaimItem lineItem : items) {
+      for (Entry lineItem : items) {
         total = total.add(lineItem.cost());
       }
       return total;
     }
   }
-
-  public class ClaimItem {
-    public Entry entry;
-    private BigDecimal cost;
-
-    public ClaimItem(Entry entry, BigDecimal cost) {
-      this.entry = entry;
-      this.cost = cost;
-    }
-
-    public BigDecimal cost() {
-      if (cost == null) {
-        cost = BigDecimal.valueOf(Costs.calculateCost(entry, true));
-        cost = cost.setScale(2, RoundingMode.DOWN); // truncate to 2 decimal places
-      }
-      return cost;
-    }
-  }
-
   public enum EncounterType {
     WELLNESS, EMERGENCY, INPATIENT, AMBULATORY
   }
@@ -313,12 +308,14 @@ public class HealthRecord {
     }
   }
 
+  private Person person;
   public List<Encounter> encounters;
   public Map<String, Entry> present;
   /** recorded death date/time. */
   public Long death;
 
-  public HealthRecord() {
+  public HealthRecord(Person person) {
+    this.person = person;
     encounters = new ArrayList<Encounter>();
     present = new HashMap<String, Entry>();
   }
